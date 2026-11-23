@@ -30,7 +30,7 @@ done
 # =============================================================================
 
 [tasks."flow:setup"]
-description = "Create mage_flow/.venv with pinned requirements.txt + flash-attn (RTX A5000 / sm_86)"
+description = "Create mage_flow/.venv with pinned requirements.txt + flash-attn"
 dir = "mage_flow"
 run = """
 set -euo pipefail
@@ -38,7 +38,10 @@ set -euo pipefail
 uv pip install --python .venv/bin/python -r requirements.txt
 uv pip install --python .venv/bin/python -e . --no-deps
 uv pip install --python .venv/bin/python setuptools wheel ninja
-FLASH_ATTENTION_FORCE_BUILD=TRUE TORCH_CUDA_ARCH_LIST="8.6" MAX_JOBS=4 CXX=g++-13 CC=gcc-13 \
+TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | sort -u | paste -sd';' -)}"
+FLASH_ATTN_CUDA_ARCHS="${FLASH_ATTN_CUDA_ARCHS:-$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | tr -d '.' | sed 's/^8[69]$/80/' | sort -u | paste -sd';' -)}"
+echo "Target GPU arch: TORCH_CUDA_ARCH_LIST=$TORCH_CUDA_ARCH_LIST, FLASH_ATTN_CUDA_ARCHS=$FLASH_ATTN_CUDA_ARCHS"
+FLASH_ATTENTION_FORCE_BUILD=TRUE FLASH_ATTN_CUDA_ARCHS="$FLASH_ATTN_CUDA_ARCHS" TORCH_CUDA_ARCH_LIST="$TORCH_CUDA_ARCH_LIST" MAX_JOBS=4 \
   uv pip install --python .venv/bin/python --no-build-isolation --no-deps flash-attn==2.8.3
 """
 
@@ -73,10 +76,14 @@ grep -Ev '^(torch|torchvision|flash-attn|mamba-ssm)' requirements.txt > /tmp/mag
 uv pip install --python .venv/bin/python -r /tmp/mage_vl_base_reqs.txt
 rm -f /tmp/mage_vl_base_reqs.txt
 uv pip install --python .venv/bin/python setuptools wheel ninja einops
-# Build CUDA extensions sequentially with MAX_JOBS=4 to keep RAM usage under ~40 GB
-FLASH_ATTENTION_FORCE_BUILD=TRUE TORCH_CUDA_ARCH_LIST="8.6" MAX_JOBS=4 CXX=g++-13 CC=gcc-13 \
+# Build CUDA extensions sequentially with MAX_JOBS=4 to keep RAM usage reasonable.
+# Auto-detect GPU compute capability (e.g. A5000 -> 8.6 / 80, RTX 5080/5060 -> 12.0 / 120).
+TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | sort -u | paste -sd';' -)}"
+FLASH_ATTN_CUDA_ARCHS="${FLASH_ATTN_CUDA_ARCHS:-$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | tr -d '.' | sed 's/^8[69]$/80/' | sort -u | paste -sd';' -)}"
+echo "Target GPU arch: TORCH_CUDA_ARCH_LIST=$TORCH_CUDA_ARCH_LIST, FLASH_ATTN_CUDA_ARCHS=$FLASH_ATTN_CUDA_ARCHS"
+FLASH_ATTENTION_FORCE_BUILD=TRUE FLASH_ATTN_CUDA_ARCHS="$FLASH_ATTN_CUDA_ARCHS" TORCH_CUDA_ARCH_LIST="$TORCH_CUDA_ARCH_LIST" MAX_JOBS=4 \
   uv pip install --python .venv/bin/python --no-build-isolation --no-deps "flash-attn==2.8.3"
-MAMBA_FORCE_BUILD=TRUE TORCH_CUDA_ARCH_LIST="8.6" MAX_JOBS=4 CXX=g++-13 CC=gcc-13 \
+MAMBA_FORCE_BUILD=TRUE TORCH_CUDA_ARCH_LIST="$TORCH_CUDA_ARCH_LIST" MAX_JOBS=4 \
   uv pip install --python .venv/bin/python --no-build-isolation --no-deps "mamba-ssm>=2.2"
 """
 
