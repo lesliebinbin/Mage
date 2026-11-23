@@ -98,7 +98,7 @@ description = "Run Mage-VL offline/local inference (pass --image/--video and --q
 dir = "mage_vl"
 run = """
 MODEL="${MAGE_VL_MODEL:-$([ -d ../models/Mage-VL ] && echo ../models/Mage-VL || echo microsoft/Mage-VL)}"
-.venv/bin/python inference_base.py --mode offline --model "$MODEL" "$@"
+.venv/bin/python inference_base.py --model "$MODEL" "$@" --mode offline
 """
 
 [tasks."vl:stream"]
@@ -124,3 +124,28 @@ run = """
 MODEL="${MAGE_VL_MODEL:-$([ -d ../models/Mage-VL ] && echo ../models/Mage-VL || echo microsoft/Mage-VL)}"
 .venv/bin/python inference_base.py --mode offline --model "$MODEL" --video assets/examples/soccer-broadcast.mp4 --video-backend codec --codec-engine traditional --num-frames 32 --question "Describe this video."
 """
+
+# =============================================================================
+# Guard: every demo/infer task must stay local (offline), never online
+# =============================================================================
+
+[tasks."check:offline"]
+description = "Assert all mage_vl tasks run locally/offline (no --mode online, no HTTP endpoints)"
+run = '''
+set -euo pipefail
+fail=0
+cmds=$(grep -nE "^[[:space:]]*[.]venv/bin/(python|mage-flow)" mise.toml || true)
+if printf "%s\n" "$cmds" | grep -- "--mode online"; then
+  echo "FAIL: --mode online in an executed command"; fail=1
+fi
+if printf "%s\n" "$cmds" | grep -E "https?://"; then
+  echo "FAIL: HTTP endpoint in an executed command"; fail=1
+fi
+n=$(printf "%s\n" "$cmds" | grep -c -- "--mode offline" || true)
+if [ "$n" -lt 3 ]; then
+  echo "FAIL: expected >=3 offline invocations, found $n"; fail=1
+fi
+printf "%s\n" "$cmds" | grep -q "inference_streaming.py" || { echo "FAIL: streaming task missing"; fail=1; }
+[ "$fail" -eq 0 ] && echo "OK: all mage_vl demo/infer commands are local/offline"
+exit "$fail"
+'''
