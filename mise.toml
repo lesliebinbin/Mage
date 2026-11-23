@@ -1,0 +1,101 @@
+# Root mise configuration for managing mage_flow and mage_vl as separate projects
+# without modifying upstream pyproject.toml files.
+# Each project uses its own `.venv` and sibling `uv.toml`.
+
+# =============================================================================
+# General / Diagnostics
+# =============================================================================
+
+[tasks.doctor]
+description = "Check GPU, CUDA, uv, ffmpeg, and sub-project venv status"
+run = """
+echo "=== Hardware & System ==="
+nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader 2>/dev/null || echo "nvidia-smi: not found"
+nvcc --version 2>/dev/null | tail -n 2 || echo "nvcc: not found"
+echo "uv: $(uv --version 2>/dev/null || echo 'not found')"
+echo "ffmpeg: $(which ffmpeg 2>/dev/null || echo 'not found')"
+echo ""
+echo "=== Sub-project Virtual Environments ==="
+for d in mage_flow mage_vl; do
+  if [ -x "$d/.venv/bin/python" ]; then
+    echo "  $d/.venv: $($d/.venv/bin/python --version)"
+  else
+    echo "  $d/.venv: not created"
+  fi
+done
+"""
+
+# =============================================================================
+# mage_flow — Text-to-image generation & instruction-based editing (Python 3.11)
+# =============================================================================
+
+[tasks."flow:setup"]
+description = "Create mage_flow/.venv with pinned requirements.txt + flash-attn (RTX A5000 / sm_86)"
+dir = "mage_flow"
+run = """
+set -euo pipefail
+[ -d .venv ] || uv venv --python 3.11 .venv
+uv pip install --python .venv/bin/python -r requirements.txt
+uv pip install --python .venv/bin/python -e . --no-deps
+uv pip install --python .venv/bin/python setuptools wheel ninja
+FLASH_ATTENTION_FORCE_BUILD=TRUE TORCH_CUDA_ARCH_LIST="8.6" MAX_JOBS=4 CXX=g++-13 CC=gcc-13 \
+  uv pip install --python .venv/bin/python --no-build-isolation --no-deps flash-attn==2.8.3
+"""
+
+[tasks."flow:app"]
+description = "Launch Mage-Flow Gradio web UI (pass extra args after --)"
+dir = "mage_flow"
+run = ".venv/bin/mage-flow-app"
+
+[tasks."flow:gen"]
+description = "Run Mage-Flow text-to-image CLI (pass args after --)"
+dir = "mage_flow"
+run = ".venv/bin/mage-flow"
+
+[tasks."flow:edit"]
+description = "Run Mage-Flow image editing CLI (pass args after --)"
+dir = "mage_flow"
+run = ".venv/bin/mage-flow-edit"
+
+# =============================================================================
+# mage_vl — Codec-native image/video understanding & streaming (Python 3.11)
+# =============================================================================
+
+[tasks."vl:setup"]
+description = "Create mage_vl/.venv with torch 2.13 + requirements.txt + flash-attn & mamba-ssm"
+dir = "mage_vl"
+run = """
+set -euo pipefail
+[ -d .venv ] || uv venv --python 3.11 .venv
+# Pin torch<=2.13 so flash-attn (-std=c++17) compiles cleanly (torch 2.15+ headers require C++20)
+uv pip install --python .venv/bin/python "torch==2.13.0" "torchvision==0.28.0"
+grep -Ev '^(torch|torchvision|flash-attn|mamba-ssm)' requirements.txt > /tmp/mage_vl_base_reqs.txt
+uv pip install --python .venv/bin/python -r /tmp/mage_vl_base_reqs.txt
+rm -f /tmp/mage_vl_base_reqs.txt
+uv pip install --python .venv/bin/python setuptools wheel ninja einops
+# Build CUDA extensions sequentially with MAX_JOBS=4 to keep RAM usage under ~40 GB
+FLASH_ATTENTION_FORCE_BUILD=TRUE TORCH_CUDA_ARCH_LIST="8.6" MAX_JOBS=4 CXX=g++-13 CC=gcc-13 \
+  uv pip install --python .venv/bin/python --no-build-isolation --no-deps "flash-attn==2.8.3"
+MAMBA_FORCE_BUILD=TRUE TORCH_CUDA_ARCH_LIST="8.6" MAX_JOBS=4 CXX=g++-13 CC=gcc-13 \
+  uv pip install --python .venv/bin/python --no-build-isolation --no-deps "mamba-ssm>=2.2"
+"""
+
+[tasks."vl:infer"]
+description = "Run Mage-VL offline/online inference (pass args after --)"
+dir = "mage_vl"
+run = ".venv/bin/python inference_base.py"
+
+[tasks."vl:stream"]
+description = "Run Mage-VL event-gated streaming inference (pass args after --)"
+dir = "mage_vl"
+run = ".venv/bin/python inference_streaming.py"
+
+[tasks."vl:demo-image"]
+description = "Quick Mage-VL offline image demo using bundled dog.jpg"
+dir = "mage_vl"
+run = '.venv/bin/python inference_base.py --mode offline --image assets/examples/dog.jpg --question "Describe this image in detail."'
+
+[tasks."vl:demo-video"]
+description = "Quick Mage-VL offline codec video demo using bundled soccer-broadcast.mp4"
+dir = "mage_vl"
+run = '.venv/bin/python inference_base.py --mode offline --video assets/examples/soccer-broadcast.mp4 --video-backend codec --codec-engine traditional --num-frames 32 --question "Describe this video."'

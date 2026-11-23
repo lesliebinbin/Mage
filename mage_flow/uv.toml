@@ -1,0 +1,5 @@
+# Local uv configuration for mage_flow (keeps upstream pyproject.toml untouched).
+# flash-attn compiles a CUDA extension against the torch already installed in .venv,
+# so build isolation must be disabled.
+
+no-build-isolation-package = ["flash-attn"]

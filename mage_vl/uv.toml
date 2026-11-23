@@ -1,0 +1,5 @@
+# Local uv configuration for mage_vl (keeps upstream pyproject.toml untouched).
+# Both flash-attn and mamba-ssm compile CUDA extensions against the torch
+# already installed in .venv, so build isolation must be disabled.
+
+no-build-isolation-package = ["flash-attn", "mamba-ssm"]
