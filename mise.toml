@@ -1,6 +1,6 @@
 # Root mise configuration for managing mage_flow and mage_vl as separate projects
 # without modifying upstream pyproject.toml files.
-# Each project uses its own `.venv` and sibling `uv.toml`.
+# All inference tasks default to local/offline GPU execution.
 
 # =============================================================================
 # General / Diagnostics
@@ -26,7 +26,7 @@ done
 """
 
 # =============================================================================
-# mage_flow — Text-to-image generation & instruction-based editing (Python 3.11)
+# mage_flow — Local text-to-image generation & image editing (Python 3.11)
 # =============================================================================
 
 [tasks."flow:setup"]
@@ -46,26 +46,26 @@ FLASH_ATTENTION_FORCE_BUILD=TRUE FLASH_ATTN_CUDA_ARCHS="$FLASH_ATTN_CUDA_ARCHS" 
 """
 
 [tasks."flow:app"]
-description = "Launch Mage-Flow Gradio web UI (pass extra args after --)"
+description = "Launch Mage-Flow local Gradio web UI (pass extra args after --)"
 dir = "mage_flow"
 run = ".venv/bin/mage-flow-app"
 
 [tasks."flow:gen"]
-description = "Run Mage-Flow text-to-image CLI (pass args after --)"
+description = "Run Mage-Flow local text-to-image CLI (pass args after --)"
 dir = "mage_flow"
 run = ".venv/bin/mage-flow"
 
 [tasks."flow:edit"]
-description = "Run Mage-Flow image editing CLI (pass args after --)"
+description = "Run Mage-Flow local image editing CLI (pass args after --)"
 dir = "mage_flow"
 run = ".venv/bin/mage-flow-edit"
 
 # =============================================================================
-# mage_vl — Codec-native image/video understanding & streaming (Python 3.11)
+# mage_vl — Local/offline image/video understanding & streaming (Python 3.11)
 # =============================================================================
 
 [tasks."vl:setup"]
-description = "Create mage_vl/.venv with torch 2.13 + requirements.txt + flash-attn & mamba-ssm"
+description = "Create mage_vl/.venv with torch 2.13, transformers 5.7.0, flash-attn & mamba-ssm"
 dir = "mage_vl"
 run = """
 set -euo pipefail
@@ -88,22 +88,39 @@ MAMBA_FORCE_BUILD=TRUE TORCH_CUDA_ARCH_LIST="$TORCH_CUDA_ARCH_LIST" MAX_JOBS=4 \
   uv pip install --python .venv/bin/python --no-build-isolation --no-deps "mamba-ssm>=2.2"
 """
 
-[tasks."vl:infer"]
-description = "Run Mage-VL offline/online inference (pass args after --)"
+[tasks."vl:download"]
+description = "Download microsoft/Mage-VL locally to models/Mage-VL for fully offline runs"
 dir = "mage_vl"
-run = ".venv/bin/python inference_base.py"
+run = '.venv/bin/hf download microsoft/Mage-VL --local-dir ../models/Mage-VL'
+
+[tasks."vl:infer"]
+description = "Run Mage-VL offline/local inference (pass --image/--video and --question after --)"
+dir = "mage_vl"
+run = """
+MODEL="${MAGE_VL_MODEL:-$([ -d ../models/Mage-VL ] && echo ../models/Mage-VL || echo microsoft/Mage-VL)}"
+.venv/bin/python inference_base.py --mode offline --model "$MODEL" "$@"
+"""
 
 [tasks."vl:stream"]
-description = "Run Mage-VL event-gated streaming inference (pass args after --)"
+description = "Run Mage-VL offline/local event-gated streaming inference (pass --video etc. after --)"
 dir = "mage_vl"
-run = ".venv/bin/python inference_streaming.py"
+run = """
+MODEL="${MAGE_VL_MODEL:-$([ -d ../models/Mage-VL ] && echo ../models/Mage-VL || echo microsoft/Mage-VL)}"
+.venv/bin/python inference_streaming.py --checkpoint "$MODEL" "$@"
+"""
 
 [tasks."vl:demo-image"]
 description = "Quick Mage-VL offline image demo using bundled dog.jpg"
 dir = "mage_vl"
-run = '.venv/bin/python inference_base.py --mode offline --image assets/examples/dog.jpg --question "Describe this image in detail."'
+run = """
+MODEL="${MAGE_VL_MODEL:-$([ -d ../models/Mage-VL ] && echo ../models/Mage-VL || echo microsoft/Mage-VL)}"
+.venv/bin/python inference_base.py --mode offline --model "$MODEL" --image assets/examples/dog.jpg --question "Describe this image in detail."
+"""
 
 [tasks."vl:demo-video"]
 description = "Quick Mage-VL offline codec video demo using bundled soccer-broadcast.mp4"
 dir = "mage_vl"
-run = '.venv/bin/python inference_base.py --mode offline --video assets/examples/soccer-broadcast.mp4 --video-backend codec --codec-engine traditional --num-frames 32 --question "Describe this video."'
+run = """
+MODEL="${MAGE_VL_MODEL:-$([ -d ../models/Mage-VL ] && echo ../models/Mage-VL || echo microsoft/Mage-VL)}"
+.venv/bin/python inference_base.py --mode offline --model "$MODEL" --video assets/examples/soccer-broadcast.mp4 --video-backend codec --codec-engine traditional --num-frames 32 --question "Describe this video."
+"""
