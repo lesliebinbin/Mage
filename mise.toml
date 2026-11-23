@@ -70,9 +70,10 @@ dir = "mage_vl"
 run = """
 set -euo pipefail
 [ -d .venv ] || uv venv --python 3.11 .venv
-# Pin torch<=2.13 so flash-attn (-std=c++17) compiles cleanly (torch 2.15+ headers require C++20)
-uv pip install --python .venv/bin/python "torch==2.13.0" "torchvision==0.28.0"
-grep -Ev '^(torch|torchvision|flash-attn|mamba-ssm)' requirements.txt > /tmp/mage_vl_base_reqs.txt
+# Pin torch<=2.13 so flash-attn (-std=c++17) compiles cleanly (torch 2.15+ headers require C++20),
+# and pin transformers==5.7.0 to match microsoft/Mage-VL's bundled modeling_mage_vl.py.
+uv pip install --python .venv/bin/python "torch==2.13.0" "torchvision==0.28.0" "transformers==5.7.0"
+grep -Ev '^(torch|torchvision|transformers|flash-attn|mamba-ssm)' requirements.txt > /tmp/mage_vl_base_reqs.txt
 uv pip install --python .venv/bin/python -r /tmp/mage_vl_base_reqs.txt
 rm -f /tmp/mage_vl_base_reqs.txt
 uv pip install --python .venv/bin/python setuptools wheel ninja einops
